@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>リアルタイム翻訳</title>
+<style>
+  :root { --bg:#0f1117; --panel:#1a1d27; --panel2:#222633; --line:#2c3142; --fg:#e7e9ee; --mut:#8b90a0; --acc:#4f8cff; --a:#36c08a; --b:#ff9f43; --err:#ff5d6c; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Hiragino Sans",sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:16px; margin:0; font-weight:650; }
+  .dot { width:10px; height:10px; border-radius:50%; background:#555; }
+  .dot.on { background:var(--a); box-shadow:0 0 8px var(--a); }
+  .wrap { display:grid; grid-template-columns:380px 1fr; gap:0; height:calc(100vh - 53px); }
+  .side { padding:16px 18px; overflow-y:auto; border-right:1px solid var(--line); background:var(--panel); }
+  .main { padding:16px 20px; overflow-y:auto; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--mut); margin:18px 0 8px; }
+  h2:first-child { margin-top:0; }
+  label { display:block; font-size:12px; color:var(--mut); margin:10px 0 4px; }
+  input,select { width:100%; padding:8px 10px; background:var(--panel2); border:1px solid var(--line); border-radius:8px; color:var(--fg); font-size:13px; }
+  input[type=range] { padding:0; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .card { background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:10px; }
+  .card .tag { font-weight:700; font-size:12px; padding:2px 8px; border-radius:6px; }
+  .tagA { background:rgba(54,192,138,.15); color:var(--a); }
+  .tagB { background:rgba(255,159,67,.15); color:var(--b); }
+  .btns { display:flex; gap:8px; margin-top:14px; }
+  button { flex:1; padding:11px; border:none; border-radius:9px; font-size:14px; font-weight:650; cursor:pointer; }
+  .start { background:var(--acc); color:#fff; }
+  .stop { background:#39404f; color:var(--fg); }
+  button:disabled { opacity:.4; cursor:default; }
+  .save { background:#2c3142; color:var(--fg); width:100%; margin-top:6px; padding:9px; }
+  .warn { color:var(--err); font-size:11px; margin-top:6px; min-height:14px; }
+  .sliderval { float:right; color:var(--fg); font-variant-numeric:tabular-nums; }
+  .feed { display:flex; flex-direction:column; gap:8px; }
+  .msg { background:var(--panel); border:1px solid var(--line); border-left-width:3px; border-radius:8px; padding:9px 12px; animation:in .15s ease; }
+  .msg.A { border-left-color:var(--a); }
+  .msg.B { border-left-color:var(--b); }
+  .msg.err { border-left-color:var(--err); color:var(--err); }
+  .msg .src { color:var(--mut); font-size:12px; }
+  .msg .dst { font-size:16px; margin-top:2px; }
+  .msg .meta { font-size:10px; color:var(--mut); float:right; }
+  @keyframes in { from{opacity:0; transform:translateY(4px);} to{opacity:1;} }
+  .hint { font-size:11px; color:var(--mut); margin-top:4px; line-height:1.5; }
+  .modeSel { display:flex; gap:6px; margin-top:6px; }
+  .modeSel button { padding:7px; font-size:12px; background:var(--panel2); color:var(--mut); border:1px solid var(--line); }
+  .modeSel button.sel { background:var(--acc); color:#fff; border-color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <div class="dot" id="dot"></div>
+  <h1>リアルタイム翻訳</h1>
+  <span id="statusText" style="font-size:12px;color:var(--mut)">停止中</span>
+</header>
+<div class="wrap">
+  <aside class="side">
+    <h2>APIキー</h2>
+    <label>Fish Audio APIキー</label>
+    <input id="fish_api_key" type="password" placeholder="fish.audio のキー">
+    <label>DeepL APIキー</label>
+    <input id="deepl_api_key" type="password" placeholder="DeepL のキー">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+      <input id="deepl_free" type="checkbox" style="width:auto"> DeepL Free プラン
+    </label>
+
+    <h2>経路A <span class="tag tagA">相手 → 自分</span></h2>
+    <div class="card">
+      <div class="row">
+        <div><label>相手の言語</label><select id="a_source"></select></div>
+        <div><label>自分が聞く言語</label><select id="a_target"></select></div>
+      </div>
+      <label>入力デバイス（相手の音）</label><select id="a_in_dev"></select>
+      <label>出力デバイス（訳をどこで聞く）</label><select id="a_out_dev"></select>
+    </div>
+
+    <h2>経路B <span class="tag tagB">自分 → 相手</span></h2>
+    <div class="card">
+      <div class="row">
+        <div><label>自分の言語</label><select id="b_source"></select></div>
+        <div><label>相手の言語</label><select id="b_target"></select></div>
+      </div>
+      <label>入力デバイス（自分のマイク）</label><select id="b_in_dev"></select>
+      <label>出力デバイス（相手へ送る先）</label><select id="b_out_dev"></select>
+    </div>
+    <div class="warn" id="loopWarn"></div>
+
+    <h2>リアルタイム調整</h2>
+    <label>区切り長 <span class="sliderval" id="maxv"></span><span class="hint">小=即時 / 大=まとまり</span></label>
+    <input id="vad_max_speech_ms" type="range" min="1500" max="6000" step="250">
+    <label>無音待ち <span class="sliderval" id="silv"></span></label>
+    <input id="vad_min_silence_ms" type="range" min="150" max="1000" step="50">
+    <label>音量ゲート <span class="sliderval" id="rmsv"></span><span class="hint">大=雑音に強い</span></label>
+    <input id="vad_rms_floor" type="range" min="0" max="0.05" step="0.002">
+
+    <button class="save" id="saveBtn">設定を保存</button>
+
+    <h2>起動</h2>
+    <div class="modeSel" id="modeSel">
+      <button data-mode="both" class="sel">双方向</button>
+      <button data-mode="a">Aのみ</button>
+      <button data-mode="b">Bのみ</button>
+    </div>
+    <div class="btns">
+      <button class="start" id="startBtn">開始</button>
+      <button class="stop" id="stopBtn" disabled>停止</button>
+    </div>
+    <button class="save" id="reloadDev" style="margin-top:10px;">デバイス一覧を再取得</button>
+  </aside>
+
+  <main class="main">
+    <div class="feed" id="feed"></div>
+  </main>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const LANGS = [["en","英語"],["ja","日本語"],["zh","中国語"],["ko","韓国語"],["fr","フランス語"]];
+let settings = null, devices = {inputs:[],outputs:[]}, mode = "both", running = false;
+
+function fillLangs(sel, val){ sel.innerHTML=""; for(const [c,n] of LANGS){ const o=document.createElement("option"); o.value=c; o.textContent=`${n} (${c})`; if(c===val)o.selected=true; sel.appendChild(o);} }
+function fillDevs(sel, list, val){
+  sel.innerHTML="";
+  const blank=document.createElement("option"); blank.value=""; blank.textContent="（既定デバイス）"; sel.appendChild(blank);
+  for(const d of list){ const o=document.createElement("option"); o.value=d.name; o.textContent=d.name; if(val && d.name.toLowerCase().includes(val.toLowerCase()))o.selected=true; sel.appendChild(o);}
+  if(val) sel.value = [...sel.options].find(o=>o.value && val.toLowerCase().includes(o.value.toLowerCase()))?.value ?? val;
+}
+
+async function loadAll(){
+  devices = await (await fetch("/api/devices")).json();
+  settings = await (await fetch("/api/config")).json();
+  $("fish_api_key").value = settings.fish_api_key||"";
+  $("deepl_api_key").value = settings.deepl_api_key||"";
+  $("deepl_free").checked = !!settings.deepl_free;
+  fillLangs($("a_source"),settings.a.source); fillLangs($("a_target"),settings.a.target);
+  fillLangs($("b_source"),settings.b.source); fillLangs($("b_target"),settings.b.target);
+  fillDevs($("a_in_dev"),devices.inputs,settings.a.in_dev); fillDevs($("a_out_dev"),devices.outputs,settings.a.out_dev);
+  fillDevs($("b_in_dev"),devices.inputs,settings.b.in_dev); fillDevs($("b_out_dev"),devices.outputs,settings.b.out_dev);
+  $("vad_max_speech_ms").value = settings.vad_max_speech_ms;
+  $("vad_min_silence_ms").value = settings.vad_min_silence_ms;
+  $("vad_rms_floor").value = settings.vad_rms_floor;
+  refreshSliderLabels(); checkLoop();
+}
+function refreshSliderLabels(){
+  $("maxv").textContent = ($("vad_max_speech_ms").value/1000).toFixed(2)+"秒";
+  $("silv").textContent = $("vad_min_silence_ms").value+"ms";
+  $("rmsv").textContent = (+$("vad_rms_floor").value).toFixed(3);
+}
+["vad_max_speech_ms","vad_min_silence_ms","vad_rms_floor"].forEach(id=>$(id).addEventListener("input",refreshSliderLabels));
+
+function checkLoop(){
+  const ai=$("a_in_dev").value, ao=$("a_out_dev").value, bi=$("b_in_dev").value, bo=$("b_out_dev").value;
+  let w=[];
+  if(ai && ai===ao) w.push("⚠ 経路Aの入力と出力が同じ → 無限ループします");
+  if(ai && ai===bo) w.push("⚠ 経路A入力と経路B出力が同じ → ループします");
+  if(bi && bi===bo) w.push("⚠ 経路Bの入力と出力が同じ → ループします");
+  $("loopWarn").innerHTML = w.join("<br>");
+}
+["a_in_dev","a_out_dev","b_in_dev","b_out_dev"].forEach(id=>$(id).addEventListener("change",checkLoop));
+
+function gather(){
+  return {
+    fish_api_key:$("fish_api_key").value.trim(),
+    deepl_api_key:$("deepl_api_key").value.trim(),
+    deepl_free:$("deepl_free").checked,
+    a:{source:$("a_source").value,target:$("a_target").value,in_dev:$("a_in_dev").value,out_dev:$("a_out_dev").value,voice:settings.a.voice||""},
+    b:{source:$("b_source").value,target:$("b_target").value,in_dev:$("b_in_dev").value,out_dev:$("b_out_dev").value,voice:settings.b.voice||""},
+    vad_max_speech_ms:+$("vad_max_speech_ms").value,
+    vad_min_silence_ms:+$("vad_min_silence_ms").value,
+    vad_rms_floor:+$("vad_rms_floor").value,
+  };
+}
+async function saveCfg(){ settings=gather(); await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(settings)}); flash($("saveBtn"),"保存しました"); }
+function flash(btn,txt){ const o=btn.textContent; btn.textContent=txt; setTimeout(()=>btn.textContent=o,1200); }
+
+$("saveBtn").onclick = saveCfg;
+$("reloadDev").onclick = loadAll;
+document.querySelectorAll("#modeSel button").forEach(b=>b.onclick=()=>{ mode=b.dataset.mode; document.querySelectorAll("#modeSel button").forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); });
+
+$("startBtn").onclick = async ()=>{ await saveCfg(); await fetch("/api/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode})}); };
+$("stopBtn").onclick = async ()=>{ await fetch("/api/stop",{method:"POST"}); };
+
+function setRunning(on,m){
+  running=on;
+  $("dot").classList.toggle("on",on);
+  $("statusText").textContent = on ? `動作中（${m==="both"?"双方向":m==="a"?"Aのみ":"Bのみ"}）` : "停止中";
+  $("startBtn").disabled=on; $("stopBtn").disabled=!on;
+}
+function addMsg(cls,html){ const d=document.createElement("div"); d.className="msg "+cls; d.innerHTML=html; $("feed").prepend(d); }
+
+// WebSocket でライブ字幕
+function connectWS(){
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = e=>{
+    const m = JSON.parse(e.data);
+    if(m.type==="status") setRunning(m.running, m.mode||mode);
+    else if(m.type==="line"){
+      const cls = m.tag; const meta = m.tag==="A"?"相手→自分":"自分→相手";
+      addMsg(cls, `<span class="meta">${meta}</span><div class="src">${escapeHtml(m.src||"")}</div><div class="dst">${escapeHtml(m.dst)}</div>`);
+    }
+    else if(m.type==="error") addMsg("err", `<span class="meta">${m.tag||""}</span>エラー: ${escapeHtml(m.message)}`);
+  };
+  ws.onclose = ()=> setTimeout(connectWS,1000);
+}
+function escapeHtml(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+loadAll().then(connectWS);
+</script>
+</body>
+</html>

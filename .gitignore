@@ -19,6 +19,7 @@ out/
 .env
 .env.local
 .env.*.local
+settings.local.json
 
 # Logs
 *.log

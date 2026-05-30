@@ -77,3 +77,10 @@ class DeepLBackend:
         if not text.strip():
             return ""
         return await self._translate(text)
+
+    async def process_verbose(self, seg):
+        """発話セグメント → (認識した原文, 翻訳文)。Web UIで両方表示する用。"""
+        src = await self._asr(seg)
+        if not src:
+            return "", ""
+        return src, await self._translate(src)
