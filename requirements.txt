@@ -1,0 +1,12 @@
+# ── 共通(base) ───────────────────────────
+sounddevice>=0.4.6
+numpy>=1.24
+soundfile>=0.12
+silero-vad>=5.1
+websockets>=13.0
+ormsgpack>=1.5
+aiohttp>=3.9
+
+# ── 個人用(Seamless)のみ。商用バックエンドだけ使うなら不要 ──
+# torch>=2.1
+# git+https://github.com/facebookresearch/seamless_communication.git
