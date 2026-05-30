@@ -48,7 +48,8 @@ OUTPUT_DEVICE = A_OUTPUT_DEVICE
 
 # ── オーディオI/O 共通パラメータ ─────────────────────────
 INPUT_SAMPLE_RATE = 16000                                   # ASR/Seamlessとも16k前提
-VAD_THRESHOLD = 0.5                                         # silero-vad 発話確率しきい値
+VAD_THRESHOLD = 0.6                                         # silero-vad 発話確率しきい値(高=誤検出減)
 VAD_MIN_SILENCE_MS = 600                                    # この無音で発話終了とみなす
-VAD_MIN_SPEECH_MS = 250                                     # これ未満の発話は無視(ノイズ除去)
+VAD_MIN_SPEECH_MS = 400                                     # これ未満の発話は無視(ノイズ除去)
 VAD_SPEECH_PAD_MS = 150                                     # 前後パディング
+VAD_RMS_FLOOR = float(os.environ.get("VAD_RMS_FLOOR", "0.012"))  # この音量未満の区間はASRに渡さない(幻聴防止)

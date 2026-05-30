@@ -87,8 +87,13 @@ class SpeechSegmenter:
                         self._collecting = False
                         seg = np.concatenate(self._buf) if self._buf else np.empty(0, "float32")
                         self._buf = []
-                        if len(seg) >= min_speech:
-                            yield seg
+                        if len(seg) < min_speech:
+                            continue
+                        # 音量ゲート: 無音/雑音はASRに渡さない(幻聴防止)
+                        rms = float(np.sqrt(np.mean(seg.astype("float32") ** 2)))
+                        if rms < config.VAD_RMS_FLOOR:
+                            continue
+                        yield seg
 
     def stop(self):
         self._stop.set()
