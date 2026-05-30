@@ -66,8 +66,10 @@ class SpeechSegmenter:
             callback=self._callback,
         )
         min_speech = int(config.VAD_MIN_SPEECH_MS / 1000 * config.INPUT_SAMPLE_RATE)
+        max_speech = int(config.VAD_MAX_SPEECH_MS / 1000 * config.INPUT_SAMPLE_RATE)
         with stream:
             carry = np.empty(0, dtype="float32")
+            buf_len = 0  # 収集中バッファのサンプル数
             while not self._stop.is_set():
                 chunk = self._q.get()
                 carry = np.concatenate([carry, chunk])
@@ -77,23 +79,31 @@ class SpeechSegmenter:
                     carry = carry[self._win:]
                     if self._collecting:
                         self._buf.append(frame)
+                        buf_len += len(frame)
                     res = self.vad(frame, return_seconds=False)
-                    if res is None:
-                        continue
-                    if "start" in res:
+                    seg = None
+                    if res is not None and "start" in res:
                         self._collecting = True
                         self._buf = [frame]
-                    if "end" in res and self._collecting:
+                        buf_len = len(frame)
+                    end_now = res is not None and "end" in res
+                    if self._collecting and not end_now and buf_len >= max_speech:
+                        # 区切りが来なくても強制カット(発話は継続扱い)
+                        seg = np.concatenate(self._buf)
+                        self._buf = []
+                        buf_len = 0
+                    elif end_now and self._collecting:
                         self._collecting = False
                         seg = np.concatenate(self._buf) if self._buf else np.empty(0, "float32")
                         self._buf = []
-                        if len(seg) < min_speech:
-                            continue
-                        # 音量ゲート: 無音/雑音はASRに渡さない(幻聴防止)
-                        rms = float(np.sqrt(np.mean(seg.astype("float32") ** 2)))
-                        if rms < config.VAD_RMS_FLOOR:
-                            continue
-                        yield seg
+                        buf_len = 0
+                    if seg is None or len(seg) < min_speech:
+                        continue
+                    # 音量ゲート: 無音/雑音はASRに渡さない(幻聴防止)
+                    rms = float(np.sqrt(np.mean(seg.astype("float32") ** 2)))
+                    if rms < config.VAD_RMS_FLOOR:
+                        continue
+                    yield seg
 
     def stop(self):
         self._stop.set()
